@@ -63,7 +63,7 @@ def parse(X, Y, arity, q):
 
     X = np.hstack((X, Y[:, np.newaxis]))
     
-    df = pd.DataFrame(X, columns=temp)
+    df = pd.DataFrame(X, columns=cols)
     df = df.assign(count=-1).groupby(cols).count()
 
     allY = pd.DataFrame(np.arange(q), columns=['y'])
