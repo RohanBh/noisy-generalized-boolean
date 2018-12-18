@@ -1,79 +1,107 @@
 from scipy import stats
 from scipy import special
-from numpy import np
+import numpy as np
 import pandas as pd
+from mpmath import *
+import time
 
-def multibeta(alpha, axis = 0, q = -1):
-    if q == -1:
-        return np.product(special.gamma(alpha), axis=axis) / special.gamma(np.sum(alpha, axis=axis))
-    return np.power(special.gamma(alpha), q) / special.gamma(alpha * q)
+mp.pretty = True
 
-def conditional_dist(stats.rv_continuous):
+def pdfYgivenXm(Xm, alpha, q, Y):
+    """Y is the response of system, Xm is the
+    input under model m, alpha is the parameter of
+    theta's prior, q is the number of possible responses
+    
+                         ( gamma(q * alpha) * gamma(vx0 + alpha)*gamma(vx1 + alpha)*... )
+    P(Y | Xm) = product--------------------------------------------------------------------
+                                      (gamma(alpha) ** q) * gamma(nx + q*alpha)
+    """
+    start = time.time()
+    # x is the 2D array like [vx1,vx2, ..., vxk] where 
+    # vx is the 1D array of q elements
+    x = parse(Xm, Y, q)
+    x = matrix(x.tolist())
+    alpha = mpf(alpha)
+    q = mpf(q)
+    x = x + alpha
+    a = zeros(x.rows, x.cols)
+    for i in range(x.rows):
+        for j in range(x.cols):
+            a[i, j] = gamma(x[i, j]) / gamma(alpha)
+    a1 = ones(a.rows, 1)
+    for i in range(a.rows):
+        for j in range(a.cols):
+            a1[i, 0] *= a[i, j]
+    b = zeros(x.rows, 1)
+    x = x * ones(x.cols, 1)
+    for i in range(x.rows):
+        b[i, 0] = gamma(q * alpha) / gamma(x[i, 0])
+    # a = np.product(multibeta(x + alpha, axis=1), dtype=float)
+    # b = np.power(multibeta(alpha, q=q), x.shape[0], dtype=float)
+    p = mpf(1)
+    for i in range(a.rows):
+        p *= a1[i, 0] * b[i, 0]
 
-    def __init__(self, alpha, q):
-        stats.rv_continuous.__init__(self, name="conditional Y|Xm")
-        self.alpha = alpha
-        self.q = q
+    end = time.time()
+    print(f"pdf computation took {end - start} seconds")
+    return p
 
-    def _pdf(self, x):
-        """x_array is the 2D array like [vx1,vx2, ..., vxk] where 
-        vx is the 1D array of q elements"""
-        return np.product(multibeta(x + self.alpha, axis=1)) / np.power(multibeta(self.alpha, q=self.q), x.size)
+def model_prior(model, k=np.e, l=4):
+    """model is represented by a numpy boolean array"""
+    model_size = np.count_nonzero(model)
+    p = mpf(min(0, l - model_size))
+    return k ** p
 
-def model_prior(stats.rv_continuous):
+def posterior(Y, X, model, alpha, q, k, l):
+    Xm = X[:, model]
+    a, b = pdfYgivenXm(Xm, alpha, q, Y), model_prior(model, mpf(k), mpf(l))
+    print(f"P(Y|Xm) = {a}    P(model) = {b}")
+    return a * b
 
-    def __init__(self, k=np.e, l=4):
-        stats.rv_continuous.__init__(self, name="model prior")
-        self.k = k
-        self.l = l
-
-    def _pdf(self, model):
-        """model is represented by a numpy boolean array"""
-        model_size = np.count_nonzero(model)
-        p = min(0, self.l - model_size)
-        return self.k ** p
-
-def posterior(x, model, alpha, q, k, l):
-    a = conditional_dist(alpha, q)
-    b = model_prior(k, l)
-    return a.pdf(x) * b(model)
-
-def metropolis(x, arity, it = 1000, alpha = 0.1, q, k=np.e, l=4):
-    """arity is the number of predictors, x is the 2D array,
-    alpha is the param for theta's prior, q is the number of 
-    possible o/ps for bool fn, k is the strength param for 
-    model prior and l is the cutoff (sort of) for same"""
+def metropolis(X, Y, arity, q, it = 500, alpha = 0.1, k=np.e, l=4):
+    """arity is the number of predictors, alpha is the param 
+    for theta's prior, q is the number of possible o/ps for
+    bool fn, k is the strength param for model prior and l
+    is the cutoff (sort of) for same"""
     sample = []
-    model = np.random.randint(0, 2, arity)    
-    sample.add(model)
+    model = np.round(np.random.randint(0, 2, arity)) != 0
+    print(np.count_nonzero(model))
+    sample.append(model)
 
     for i in range(it):
-        next_model = np.array(model)
-        next_model[np.random.randint(0, arity)] ^= 1
-        a = posterior(x, next_model, alpha, q, k, l) / posterior(x, model, alpha, q, k, l)
+        next_model = model.copy()
+        next_model[np.random.randint(0, arity)] ^= True
+        n, d = posterior(Y, X, next_model, alpha, q, k, l), posterior(Y, X, model, alpha, q, k, l)
+        a = n / d
+        print(f"{i:5}  size={np.count_nonzero(model):2}     next={n}     curr={d}     a={a}", end=' ')
         if np.random.rand() <= a:
             model = next_model
-        sample.add(model)
+            print("*"*20, end = " ")
+        print()
+        print("-"*50)
+        sample.append(model)
 
     return sample
 
-def parse(X, Y, arity, q):
-    xi = np.core.defchararray.add('x', np.char.mod('%d', np.arange(X.shape[1])))
+def parse(X, Y, q):
+    arity = X.shape[1]
+    xi = np.core.defchararray.add('x', np.char.mod('%d', np.arange(1, arity + 1)))
     cols = np.append(xi, 'y')
 
     X = np.hstack((X, Y[:, np.newaxis]))
     
     df = pd.DataFrame(X, columns=cols)
-    df = df.assign(count=-1).groupby(cols).count()
-
+    df = df.assign(count=-1).groupby(cols.tolist()).count().reset_index()
+   
     allY = pd.DataFrame(np.arange(q), columns=['y'])
 
     x = []
-    for name, group in df.groupby(xi):
+    for name, group in df.groupby(xi.tolist()):
         vx = group.loc[:, ['y', 'count']]
         vx = pd.merge(vx, allY, how='right', on='y')
         vx.fillna(0, inplace=True) # replaces NaN with 0
         vx = vx.sort_values(by=['y']).values
-        x.append(x, vx)
+        x.append(vx)
 
-    return np.array(x)
+    return np.array(x)[...,1]
+
