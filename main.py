@@ -16,12 +16,10 @@ def pdfYgivenXm(Xm, alpha, q, Y):
     # vx is the 1D array of q elements
     x = parse(Xm, Y, q)
     x = x + alpha
-    num = special.gamma(x)
-    den = special.gamma(x.sum(axis=1))
-    num = np.log(num).sum(axis=1)
-    den = np.log(den)
+    num = special.loggamma(x).sum(axis=1)
+    den = special.loggamma(x.sum(axis=1))
     num -= den
-    num += np.log(special.gamma(q * alpha)) - q * np.log(special.gamma(alpha))
+    num += special.loggamma(q * alpha) - q * special.loggamma(alpha)
     return num.sum()
 
 def model_prior(model, k=np.e, l=4):
@@ -35,11 +33,12 @@ def posterior(Y, X, model, alpha, q, k, l):
     a, b = pdfYgivenXm(Xm, alpha, q, Y), model_prior(model, k, l)
     return a + b
 
-def metropolis(X, Y, arity, q, iterations = 500, alpha = 0.1, k=np.e, l=4):
+def metropolis(X, Y, q, iterations = 10000, alpha = 0.1, k=np.e, l=4):
     """arity is the number of predictors, alpha is the param 
     for theta's prior, q is the number of possible o/ps for
     bool fn, k is the strength param for model prior and l
     is the cutoff (sort of) for same"""
+    arity = X.shape[1]
     sample = []
     model = np.round(np.random.randint(0, 2, arity)) != 0
     sample.append(model)
@@ -54,16 +53,13 @@ def metropolis(X, Y, arity, q, iterations = 500, alpha = 0.1, k=np.e, l=4):
         start = time.time()
         next_model = model.copy()
         next_model[np.random.randint(0, arity)] ^= True
+        if np.count_nonzero(next_model) == 0:
+            continue
         n, d = posterior(Y, X, next_model, alpha, q, k, l), posterior(Y, X, model, alpha, q, k, l)
         a = n - d
-        # print(f"{i:5}  size={np.count_nonzero(model):2}     next_log={n:.2f}     curr_log={d:.2f}     a={(np.e ** a):.2f}", end=' ')
         if np.log(np.random.rand()) <= a:
             model = next_model
-            # print("*"*5, "change model", "*"*5, end = " ")
         end = time.time()
-        # print()
-        # print(f"loop took {end - start} secs")
-        # print("-"*80)
         sample.append(model)
     print("*"*10,f"loop took {time.time() - t} seconds", "*"*10)
     return sample
