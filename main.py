@@ -35,7 +35,7 @@ def posterior(Y, X, model, alpha, q, k, l):
     a, b = pdfYgivenXm(Xm, alpha, q, Y), model_prior(model, k, l)
     return a + b
 
-def metropolis(X, Y, arity, q, it = 500, alpha = 0.1, k=np.e, l=4):
+def metropolis(X, Y, arity, q, iterations = 500, alpha = 0.1, k=np.e, l=4):
     """arity is the number of predictors, alpha is the param 
     for theta's prior, q is the number of possible o/ps for
     bool fn, k is the strength param for model prior and l
@@ -46,9 +46,10 @@ def metropolis(X, Y, arity, q, it = 500, alpha = 0.1, k=np.e, l=4):
 
     t = time.time()
     lt = time.time()
-    for i in range(it):
-        if i % 500 == 0:
-            print(i, f"took {time.time()-lt} seconds")
+    print("*"*10,"Running MCMC", "*"*10)
+    for i in range(iterations):
+        if i % 500 == 0 and i != 0:
+            print(f"{i}: 500 iterations took {time.time()-lt} seconds")
             lt = time.time()
         start = time.time()
         next_model = model.copy()
