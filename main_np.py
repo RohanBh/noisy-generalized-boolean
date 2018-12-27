@@ -19,6 +19,7 @@ def pdfYgivenXm(Xm, alpha, q, Y):
     num = special.gamma(x)
     den = special.gamma(x.sum(axis=1))
     num = np.log(num).sum(axis=1)
+    den = np.log(den)
     num -= den
     num += np.log(special.gamma(q * alpha)) - q * np.log(special.gamma(alpha))
     return num.sum()
